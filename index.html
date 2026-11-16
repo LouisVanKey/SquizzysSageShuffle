@@ -56,7 +56,10 @@
           <svg viewBox="0 0 19 20" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M8.84 2.72a6.23 6.23 0 1 0 0 12.46 6.23 6.23 0 0 0 0-12.46Zm0 11.03a4.8 4.8 0 1 1 0-9.6 4.8 4.8 0 0 1 0 9.6Zm5.7-.37c-.37.47-.78.88-1.21 1.22l2.68 2.68h1.22v-1.21l-2.69-2.69Z"/></svg>
           <input id="search" type="search" placeholder="Search hero or class" autocomplete="off">
         </label>
-        <p class="counts" id="counts"></p>
+        <div class="toolbar-right">
+          <p class="counts" id="counts"></p>
+          <button class="btn ghost random" id="random-btn" type="button" title="Let fate choose an available hero for you">🎲 Random hero</button>
+        </div>
       </div>
       <div class="grid" id="grid-available"></div>
       <p class="empty" id="empty-available" hidden>No available heroes match your search.</p>

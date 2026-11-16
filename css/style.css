@@ -116,6 +116,10 @@ h1 { font-size: clamp(2rem, 6vw, 3.25rem); text-shadow: 0 2px 0 #000; }
 .search input::placeholder { color: var(--muted); }
 .search:focus-within { border-bottom-width: 2px; }
 .counts { margin: 0; color: var(--muted); }
+.toolbar-right { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
+.btn.random { padding: .45rem 1.1rem; }
+.reroll { display: block; margin: .9rem auto 0; background: none; border: 0; color: var(--gold); font: inherit; text-decoration: underline; cursor: pointer; }
+.reroll:hover { color: #f0cf85; }
 .counts b { color: var(--gold); }
 
 /* Section headings with gold rules, as on fabtcg.com */

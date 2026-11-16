@@ -57,7 +57,7 @@
         if (mem.picks.some((p) => p.hero_id === heroId)) throw { code: "23505", message: "picks_pkey" };
         if (mem.picks.some((p) => p.user_id === "demo-me")) throw { code: "23505", message: "picks_user_id_key" };
         await new Promise((r) => setTimeout(r, 350));
-        mem.picks.push({ hero_id: heroId, user_id: "demo-me", player_name: name, discord_name: "demo.player" }); save();
+        mem.picks.push({ hero_id: heroId, user_id: "demo-me", player_name: name, discord_name: mem.user.handle }); save();
       },
       async remove(heroId) { mem.picks = mem.picks.filter((p) => p.hero_id !== heroId); save(); },
     };
@@ -183,6 +183,7 @@
     const mine = myPick();
     $("thanks").hidden = !mine;
     $("choose-btn").hidden = !!mine;
+    $("random-btn").hidden = !!mine || !state.locksOpen || total - state.picks.size <= 0;
     renderAccount();
   }
 
@@ -200,7 +201,8 @@
       const text = el("div");
       if (mine) {
         const h = byId[mine.hero_id];
-        text.append(el("p", {}, el("strong", {}, "Thank you for choosing! "), "You locked in ", el("strong", {}, h ? h.name : mine.hero_id), " as ", el("strong", {}, mine.player_name), "."),
+        text.append(el("p", {}, el("strong", {}, "Thank you for choosing! "), "You locked in ", el("strong", {}, h ? h.name : mine.hero_id), " as ", el("strong", {}, mine.player_name),
+            mine.discord_name ? ` (@${mine.discord_name})` : "", "."),
           el("p", { class: "small" }, "Locked is locked. Need a change? Ask an organiser."));
       } else {
         text.append(el("p", {}, DEMO ? el("span", { class: "demo-flag" }, "Demo mode") : null, "Welcome, ", el("strong", {}, state.user.name), "!"),
@@ -262,11 +264,23 @@
     });
   }
 
-  function openDialog(h) {
+  function availableHeroes() {
+    return HEROES.filter((h) => !h.benched && !state.picks.has(h.id));
+  }
+
+  // Random pick: open the normal confirm dialog for a random available hero, with a re-roll option.
+  function openRandom(exceptId) {
+    let pool = availableHeroes();
+    if (pool.length > 1 && exceptId) pool = pool.filter((h) => h.id !== exceptId);
+    if (!pool.length) { toast("No heroes left to pick from.", true); return; }
+    openDialog(pool[Math.floor(Math.random() * pool.length)], true);
+  }
+
+  function openDialog(h, random) {
     const dlg = $("pick-dialog");
     setStage(h);
     $("dlg-name").textContent = h.name;
-    $("dlg-class").textContent = h.cls + " · Young hero";
+    $("dlg-class").textContent = (random ? "🎲 Random pick · " : "") + h.cls + " · Young hero";
     $("dlg-stats").textContent = `Life ${h.life} · Intellect ${h.int}`;
     $("pick-form").onsubmit = (ev) => ev.preventDefault();
     const action = $("dlg-action");
@@ -279,17 +293,22 @@
     } else if (!state.locksOpen) {
       action.replaceChildren(el("p", { class: "note" }, "Hero locks are closed."));
     } else {
-      const input = el("input", { id: "player-name", name: "player", required: true, minlength: 2, maxlength: 32, autocomplete: "name", value: state.user.name.slice(0, 32) });
+      const input = el("input", { id: "player-name", name: "player", required: true, minlength: 2, maxlength: 32, autocomplete: "given-name", placeholder: "e.g. Louis" });
+      if (state.lastName) input.value = state.lastName;
+      input.addEventListener("input", () => { state.lastName = input.value; });
       const btn = el("button", { class: "btn", type: "submit" }, "Lock in " + h.name.split(",")[0]);
-      action.replaceChildren(
-        el("label", { class: "field" }, el("span", {}, "Your name"), input),
-        el("p", { class: "warn" }, "Locked is locked: you can't change your hero afterwards. Your name and Discord tag are shown publicly next to it."),
-        btn);
+      const kids = [
+        el("label", { class: "field" }, el("span", {}, "Your real first name"), input),
+        el("p", { class: "warn" }, "Locked is locked: you can't change your hero afterwards. Your first name and Discord tag" + (state.user.handle ? ` (@${state.user.handle})` : "") + " are shown publicly next to it."),
+        btn];
+      if (random) kids.push(el("button", { class: "reroll", type: "button", onclick: () => openRandom(h.id) }, "🎲 Roll again"));
+      action.replaceChildren(...kids);
       $("pick-form").onsubmit = async (ev) => {
         ev.preventDefault();
         if (btn.disabled) return;
         const name = input.value.trim().replace(/\s+/g, " ");
         if (name.length < 2) { input.focus(); return; }
+        if (!/\p{L}/u.test(name)) { toast("Please fill in your real first name.", true); input.focus(); return; }
         btn.disabled = true;
         try {
           await api.lock(h.id, name);
@@ -312,7 +331,7 @@
         setTimeout(() => { state.freshId = null; }, 4000);
       };
     }
-    dlg.showModal();
+    if (!dlg.open) dlg.showModal();
   }
 
   async function removePick(h, pick) {
@@ -353,6 +372,7 @@
   $("search").addEventListener("input", (e) => { state.filter = e.target.value; render(); });
   $("dlg-close").addEventListener("click", () => $("pick-dialog").close());
   $("pick-dialog").addEventListener("click", (e) => { if (e.target === e.currentTarget) e.currentTarget.close(); });
+  $("random-btn").addEventListener("click", () => openRandom());
   $("choose-btn").addEventListener("click", (e) => { e.preventDefault(); $("available").scrollIntoView({ behavior: REDUCED ? "auto" : "smooth" }); });
   render();
   api.init(refresh).then(refresh).catch((e) => { toast("Could not connect: " + (e.message || e), true); });

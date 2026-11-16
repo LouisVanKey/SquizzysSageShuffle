@@ -51,6 +51,27 @@ Keep a notepad open. You will collect five values along the way:
    - **Site URL**: paste **A**.
    - **Redirect URLs**: click **Add URL**, paste **A** again. Save.
 
+## Part 3b: Set up e-mail login (10 min, optional but recommended)
+
+Players without Discord can log in with a one-click link sent to their e-mail. Supabase sends these mails,
+but its built-in mailer only delivers to members of your own Supabase team. To reach everyone, let Supabase
+send them through a free Gmail account:
+
+1. Use (or create) a Gmail address for the event, e.g. `squizzys.shuffle@gmail.com`.
+2. In that Google account: **Manage your Google Account** > **Security** > turn on **2-Step Verification**.
+3. Then go to https://myaccount.google.com/apppasswords, create an app password named `Supabase`
+   and copy the 16-letter code (keep it private, like the Discord secret).
+4. In Supabase: **Authentication** > **Emails** > **SMTP Settings** > enable **Custom SMTP** and fill in:
+   - Sender email: the Gmail address. Sender name: `Squizzy's Sage Shuffle`
+   - Host: `smtp.gmail.com`, Port: `465`
+   - Username: the Gmail address. Password: the 16-letter app password. Click **Save**.
+5. **Authentication** > **Rate Limits**: check "emails sent per hour" (30 is plenty; raise it on launch day if needed).
+6. Optional: **Authentication** > **Emails** > **Templates**: edit the **Magic Link** and **Confirm signup**
+   mails, e.g. subject "Your login link for Squizzy's Sage Shuffle".
+
+The e-mail login uses the same Site URL / Redirect URL you set in Part 3 step 5, so nothing else is needed.
+Gmail can send about 500 mails a day for free, far more than this event needs.
+
 ## Part 4: Connect the site to the database (3 min)
 
 1. On GitHub open your repository, click the folder `js`, then the file `config.js`.
@@ -78,6 +99,8 @@ Keep a notepad open. You will collect five values along the way:
 ## Part 6: Test it
 
 1. Open your site and click **Log in with Discord**. Approve. You should see "Welcome, <your name>".
+   Also try the e-mail login in a private window: type your address, click **Mail me a login link**,
+   open the mail and click the link. The site opens logged in.
 2. Lock a hero and enjoy the animation.
 3. Open the site in a private/incognito window: your hero is under "Locked in" with your name and Discord tag.
 4. As organiser you see a **Remove** button under each locked hero. Use it to remove your test pick.
@@ -88,6 +111,10 @@ Keep a notepad open. You will collect five values along the way:
 - **Still says Demo mode**: `config.js` was not saved correctly (check the quotes and commas), or wait a few more minutes and hard-reload.
 - **Discord shows "Invalid OAuth2 redirect_uri"**: the redirect in the Discord application is not exactly the Supabase Callback URL.
 - **After approving you return to the site but are not logged in**: address **A** is missing in Supabase > Authentication > URL Configuration.
+- **No login mail arrives**: check the spam folder, and the SMTP settings from Part 3b. Without custom SMTP
+  only Supabase team members receive the mail. "Too many login mails" means the hourly rate limit was hit.
+- **The login link opens the site but you are not logged in / "link expired"**: links work once and expire after
+  an hour; request a new one. Some mail apps open links in their own browser: you are then logged in there.
 - **"Could not lock hero"**: `schema.sql` or `seed_heroes.sql` was not run, or ran with an error. Run them again; it is safe.
 - **No Remove button**: your Discord User ID is not in the `admins` table, or you need to log out and in again.
 

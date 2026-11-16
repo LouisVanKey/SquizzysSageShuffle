@@ -6,7 +6,7 @@
   const DEMO = !(CFG.supabaseUrl && CFG.supabaseAnonKey && window.supabase);
   const $ = (id) => document.getElementById(id);
 
-  const state = { user: null, isAdmin: false, locksOpen: true, picks: new Map(), filter: "", freshId: null };
+  const state = { user: null, isAdmin: false, locksOpen: true, picks: new Map(), filter: "", freshId: null, emailSent: null };
   const REDUCED = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   // ---------- tiny DOM helper (always textContent, never innerHTML, for user input) ----------
@@ -37,7 +37,7 @@
   }
 
   // ---------- backends ----------
-  // Both expose: init(onChange), signIn(), signOut(), loadPicks(), lock(heroId, name), remove(heroId)
+  // Both expose: init(onChange), signIn(), signInEmail(email), signOut(), loadPicks(), lock(heroId, name), remove(heroId)
   function demoBackend() {
     const KEY = "sss-demo";
     const read = () => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } };
@@ -50,14 +50,16 @@
     const save = () => { write(mem); onChange(); };
     return {
       async init(cb) { onChange = cb; state.user = mem.user; state.isAdmin = !!mem.user; },
-      async signIn() { mem.user = { id: "demo-me", name: "Demo Player", handle: "demo.player", avatar: null }; state.user = mem.user; state.isAdmin = true; save(); },
+      async signIn() { mem.user = { id: "demo-me", name: "Demo Player", handle: "demo.player", avatar: null, email: null }; state.user = mem.user; state.isAdmin = true; save(); },
+      // Demo: pretend the login link was clicked straight away.
+      async signInEmail(email) { mem.user = { id: "demo-me", name: email.split("@")[0], handle: "", avatar: null, email }; state.user = mem.user; state.isAdmin = true; save(); return { instant: true }; },
       async signOut() { mem.user = null; state.user = null; state.isAdmin = false; save(); },
       async loadPicks() { return mem.picks; },
       async lock(heroId, name) {
         if (mem.picks.some((p) => p.hero_id === heroId)) throw { code: "23505", message: "picks_pkey" };
         if (mem.picks.some((p) => p.user_id === "demo-me")) throw { code: "23505", message: "picks_user_id_key" };
         await new Promise((r) => setTimeout(r, 350));
-        mem.picks.push({ hero_id: heroId, user_id: "demo-me", player_name: name, discord_name: mem.user.handle }); save();
+        mem.picks.push({ hero_id: heroId, user_id: "demo-me", player_name: name, discord_name: mem.user.handle || null }); save();
       },
       async remove(heroId) { mem.picks = mem.picks.filter((p) => p.hero_id !== heroId); save(); },
     };
@@ -70,11 +72,19 @@
       const u = session && session.user;
       if (!u) { state.user = null; state.isAdmin = false; return; }
       const m = u.user_metadata || {};
-      state.user = {
+      const viaDiscord = (u.identities || []).some((i) => i.provider === "discord") || (u.app_metadata && u.app_metadata.provider === "discord");
+      state.user = viaDiscord ? {
         id: u.id,
         name: (m.custom_claims && m.custom_claims.global_name) || m.full_name || m.name || "Discord user",
         handle: m.full_name || m.name || "",
         avatar: m.avatar_url || null,
+        email: null,
+      } : {
+        id: u.id,
+        name: (u.email || "player").split("@")[0],
+        handle: "",
+        avatar: null,
+        email: u.email || "",
       };
       const { data } = await sb.rpc("is_admin");
       state.isAdmin = data === true;
@@ -100,6 +110,12 @@
           options: { scopes: "identify", redirectTo: location.origin + location.pathname },
         });
         if (error) throw error;
+      },
+      // Passwordless login: Supabase mails a one-click login link (free, built into Supabase Auth).
+      async signInEmail(email) {
+        const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + location.pathname } });
+        if (error) throw error;
+        return { instant: false };
       },
       async signOut() { await sb.auth.signOut(); },
       async loadPicks() {
@@ -193,8 +209,8 @@
     const mine = myPick();
     if (!state.user) {
       kids.push(el("p", {}, DEMO ? el("span", { class: "demo-flag" }, "Demo mode") : null,
-        "Log in with Discord to lock in your hero. We only read your Discord name and avatar."));
-      kids.push(el("button", { class: "btn discord", type: "button", onclick: signIn }, DISCORD_ICON(), "Log in with Discord"));
+        "Log in to lock in your hero: with Discord, or with a login link sent to your e-mail. Your e-mail address is never shown publicly."));
+      kids.push(loginOptions());
     } else {
       const who = el("div", { class: "who" });
       if (state.user.avatar) who.append(el("img", { src: state.user.avatar, alt: "" }));
@@ -214,6 +230,35 @@
     box.replaceChildren(...kids);
   }
 
+  function loginOptions() {
+    const discord = el("button", { class: "btn discord", type: "button", onclick: signIn }, DISCORD_ICON(), "Log in with Discord");
+    let mail;
+    if (state.emailSent) {
+      mail = el("div", { class: "email-sent" },
+        el("p", {}, "✉ Login link sent to ", el("strong", {}, state.emailSent), ". Open the mail and click the link to log in (check your spam folder too). "),
+        el("button", { class: "reroll", type: "button", onclick: () => { state.emailSent = null; renderAccount(); } }, "Use another address"));
+    } else {
+      const input = el("input", { id: "login-email", type: "email", required: true, maxlength: 254, placeholder: "you@example.com", autocomplete: "email", "aria-label": "E-mail address" });
+      const btn = el("button", { class: "btn ghost", type: "submit" }, "Mail me a login link");
+      mail = el("form", { class: "email-login", onsubmit: async (ev) => {
+        ev.preventDefault();
+        const email = input.value.trim();
+        if (!email || !input.checkValidity()) { input.reportValidity(); return; }
+        btn.disabled = true;
+        try {
+          const r = await api.signInEmail(email);
+          if (r && r.instant) await refresh();
+          else { state.emailSent = email; renderAccount(); }
+        } catch (e) {
+          const msg = String((e && e.message) || e);
+          toast(/rate limit|security purposes/i.test(msg) ? "Too many login mails right now. Wait a minute and try again." : "Could not send the login link: " + msg, true);
+          btn.disabled = false;
+        }
+      } }, input, btn);
+    }
+    return el("div", { class: "login" }, discord, el("span", { class: "or" }, "or"), mail);
+  }
+
   // ---------- actions ----------
   async function signIn() {
     try { await api.signIn(); await refresh(); } catch (e) { toast("Discord login failed: " + (e.message || e), true); }
@@ -222,6 +267,7 @@
   function setStage(h) {
     const stage = $("dlg-stage"), cut = $("dlg-cutout");
     stage.hidden = !h; stage.classList.remove("locked");
+    $("dlg-reel").hidden = true; $("dlg-reel").replaceChildren(); cut.parentElement.hidden = false;
     $("dlg-stamp").hidden = true; $("dlg-sparkles").replaceChildren();
     if (!h) return;
     stage.style.setProperty("--c", h.colour);
@@ -268,12 +314,91 @@
     return HEROES.filter((h) => !h.benched && !state.picks.has(h.id));
   }
 
-  // Random pick: open the normal confirm dialog for a random available hero, with a re-roll option.
+  // Random pick: a short shuffle through the available heroes, slowing down until it lands on one,
+  // then the normal confirm dialog for that hero (with a re-roll option). Nothing is locked until confirmed.
+  let spinToken = 0;
+  const randomOf = (list) => list[Math.floor(Math.random() * list.length)];
+
   function openRandom(exceptId) {
     let pool = availableHeroes();
     if (pool.length > 1 && exceptId) pool = pool.filter((h) => h.id !== exceptId);
     if (!pool.length) { toast("No heroes left to pick from.", true); return; }
-    openDialog(pool[Math.floor(Math.random() * pool.length)], true);
+    const final = randomOf(pool);
+    if (REDUCED || pool.length === 1) { openDialog(final, true); return; }
+    spin(pool, final);
+  }
+
+  // Slot machine: a vertical reel of hero faces spins behind a gold window, blurs, slows down,
+  // overshoots the payline a little, snaps back onto the chosen hero and hits the jackpot.
+  function spin(pool, final) {
+    const token = ++spinToken;
+    const dlg = $("pick-dialog"), stage = $("dlg-stage"), reel = $("dlg-reel");
+    // Warm the image cache so the faces show up while spinning.
+    for (const h of pool) if (h.art) { const im = new Image(); im.referrerPolicy = "no-referrer"; im.src = h.art; }
+    setStage(null);
+    stage.hidden = false; stage.style.setProperty("--c", "#dab45f");
+    $("dlg-cutout").parentElement.hidden = true;
+    $("dlg-class").textContent = "🎰 Spinning the reels…";
+    $("dlg-stats").textContent = "";
+    $("dlg-action").replaceChildren();
+    $("pick-form").onsubmit = (ev) => ev.preventDefault();
+
+    // The reel: random faces, the winner, and one more below it so the window never shows a gap.
+    const seq = [];
+    const add = (avoid) => { let h; do { h = randomOf(pool); } while (pool.length > 2 && avoid.includes(h)); seq.push(h); };
+    for (let k = 0; k < 32; k++) add([seq[k - 1], final]);
+    const finalIndex = seq.length; seq.push(final);
+    add([final]);
+    const items = seq.map((h, k) => {
+      const item = el("div", { class: "slot-item" + (k === finalIndex ? " final" : "") }, avatar(h));
+      item.style.setProperty("--c", h.colour);
+      return item;
+    });
+    const strip = el("div", { class: "slot-strip" }, ...items);
+    const bulbs = (side, n) => el("div", { class: "bulbs " + side }, ...Array.from({ length: n }, () => el("i")));
+    reel.replaceChildren(
+      el("div", { class: "slot-window" }, strip),
+      el("div", { class: "payline" }),
+      bulbs("top", 15), bulbs("bottom", 15), bulbs("left", 6), bulbs("right", 6),
+      el("div", { class: "jackpot", hidden: true }, el("small", {}, "🎰 Random hero"), "Jackpot!"));
+    reel.className = "reel spinning";
+    reel.hidden = false;
+    if (!dlg.open) dlg.showModal();
+
+    const H = items[0].offsetHeight || 120;
+    const startY = -H, endY = -finalIndex * H;
+    const spinAnim = strip.animate([
+      { transform: `translateY(${startY}px)`, easing: "ease-out" },
+      { transform: `translateY(${startY + H * 0.3}px)`, offset: 0.05, easing: "cubic-bezier(.5, 0, .1, 1)" },   // pull the lever
+      { transform: `translateY(${endY - H * 0.22}px)`, offset: 0.88, easing: "ease-in-out" },                   // overshoot the payline
+      { transform: `translateY(${endY}px)` },                                                                 // and click back onto it
+    ], { duration: 3600, fill: "forwards" });
+    strip.animate([
+      { filter: "blur(0)" }, { filter: "blur(0)", offset: 0.05 }, { filter: "blur(2.5px)", offset: 0.14 },
+      { filter: "blur(1.5px)", offset: 0.5 }, { filter: "blur(0)", offset: 0.74 }, { filter: "blur(0)" },
+    ], { duration: 3600, fill: "forwards" });
+
+    // Show the name of whichever hero is on the payline right now.
+    let shown = -1;
+    const follow = () => {
+      if (token !== spinToken) return;
+      const y = new DOMMatrixReadOnly(getComputedStyle(strip).transform).m42;
+      const idx = Math.min(seq.length - 1, Math.max(0, Math.round(-y / H)));
+      if (idx !== shown) { shown = idx; $("dlg-name").textContent = seq[idx].name; }
+      if (spinAnim.playState === "running") requestAnimationFrame(follow);
+    };
+    requestAnimationFrame(follow);
+
+    spinAnim.finished.then(() => {
+      if (token !== spinToken || !dlg.open) return;
+      $("dlg-name").textContent = final.name;
+      $("dlg-class").textContent = "🎰 Jackpot!";
+      stage.style.setProperty("--c", final.colour);
+      reel.className = "reel won";
+      reel.querySelector(".jackpot").hidden = false;
+      sparkle();
+      setTimeout(() => { if (token === spinToken && dlg.open) openDialog(final, true); }, 1500);
+    }).catch(() => {});
   }
 
   function openDialog(h, random) {
@@ -286,8 +411,14 @@
     const action = $("dlg-action");
     const mine = myPick();
     if (!state.user) {
-      action.replaceChildren(el("p", { class: "note" }, "Log in with Discord to lock in this hero."),
-        el("button", { class: "btn discord", type: "button", onclick: signIn }, DISCORD_ICON(), "Log in with Discord"));
+      action.replaceChildren(el("p", { class: "note" }, "Log in with Discord or e-mail to lock in this hero."),
+        el("div", { class: "login" },
+          el("button", { class: "btn discord", type: "button", onclick: signIn }, DISCORD_ICON(), "Log in with Discord"),
+          el("button", { class: "btn ghost", type: "button", onclick: () => {
+            dlg.close();
+            $("account").scrollIntoView({ behavior: REDUCED ? "auto" : "smooth", block: "center" });
+            const f = $("login-email"); if (f) f.focus({ preventScroll: true });
+          } }, "✉ Log in with e-mail")));
     } else if (mine) {
       action.replaceChildren(el("p", { class: "note" }, `You already locked in ${byId[mine.hero_id] ? byId[mine.hero_id].name : "a hero"}. Each player gets one hero.`));
     } else if (!state.locksOpen) {
@@ -299,7 +430,9 @@
       const btn = el("button", { class: "btn", type: "submit" }, "Lock in " + h.name.split(",")[0]);
       const kids = [
         el("label", { class: "field" }, el("span", {}, "Your real first name"), input),
-        el("p", { class: "warn" }, "Locked is locked: you can't change your hero afterwards. Your first name and Discord tag" + (state.user.handle ? ` (@${state.user.handle})` : "") + " are shown publicly next to it."),
+        el("p", { class: "warn" }, "Locked is locked: you can't change your hero afterwards. " + (state.user.handle
+          ? `Your first name and Discord tag (@${state.user.handle}) are shown publicly next to it.`
+          : "Your first name is shown publicly next to it. Your e-mail address stays private.")),
         btn];
       if (random) kids.push(el("button", { class: "reroll", type: "button", onclick: () => openRandom(h.id) }, "🎲 Roll again"));
       action.replaceChildren(...kids);
@@ -371,6 +504,10 @@
   $("venue").textContent = CFG.venue || "the armory";
   $("search").addEventListener("input", (e) => { state.filter = e.target.value; render(); });
   $("dlg-close").addEventListener("click", () => $("pick-dialog").close());
+  $("pick-dialog").addEventListener("close", () => {
+    spinToken++;
+    $("dlg-reel").querySelectorAll(".slot-strip").forEach((n) => n.getAnimations().forEach((an) => an.cancel()));
+  });
   $("pick-dialog").addEventListener("click", (e) => { if (e.target === e.currentTarget) e.currentTarget.close(); });
   $("random-btn").addEventListener("click", () => openRandom());
   $("choose-btn").addEventListener("click", (e) => { e.preventDefault(); $("available").scrollIntoView({ behavior: REDUCED ? "auto" : "smooth" }); });

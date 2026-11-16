@@ -92,6 +92,15 @@ h1 { font-size: clamp(2rem, 6vw, 3.25rem); text-shadow: 0 2px 0 #000; }
 .account .who img { width: 56px; height: 56px; border-radius: 50%; border: 2px solid var(--gold); object-fit: cover; }
 .account strong { color: var(--gold); }
 .account .small { color: var(--muted); font-size: .95rem; }
+/* Login options: Discord or an e-mail login link */
+.login { display: flex; gap: .75rem 1rem; align-items: center; flex-wrap: wrap; }
+.login .or { color: var(--muted); font-style: italic; }
+.email-login { display: flex; flex: 1 1 280px; min-width: 0; }
+.email-login input { flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--gold); border-right: 0; color: var(--text); font: inherit; padding: .55rem .75rem; }
+.email-login input:focus { outline: 0; box-shadow: inset 0 0 0 1px var(--gold); }
+.email-login .btn { white-space: nowrap; }
+.email-sent { flex: 1 1 280px; }
+.email-sent .reroll { display: inline; margin: 0; }
 .demo-flag { background: var(--gold); color: var(--bg); font-weight: 700; padding: .1rem .5rem; margin-right: .5rem; text-transform: uppercase; font-size: .8rem; letter-spacing: .08em; }
 
 .btn {
@@ -193,8 +202,15 @@ button.hero:hover .hero-name { color: var(--gold); }
 /* burst out of the pop-up on open, then hover */
 @keyframes breakout { 0% { opacity: 0; transform: translateY(60px) scale(.62); } 60% { opacity: 1; } 100% { opacity: 1; transform: translateY(0) scale(1); } }
 @keyframes float { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-14px) scale(1.02); } }
-.stage.locked .cutout { animation: lockpulse .7s ease-out forwards; }
-@keyframes lockpulse { 0% { transform: scale(1); } 35% { transform: scale(1.09); filter: brightness(1.6) drop-shadow(0 0 40px #fff); } 100% { transform: scale(1.03); } }
+/* Lock-in flash: only the hero itself turns into a glowing white silhouette, then fades back to colour.
+   Every keyframe uses the same filter functions in the same order, so the browser can blend between them. */
+.stage.locked .cutout { animation: lockflash .9s ease-out forwards; }
+@keyframes lockflash {
+  0%   { transform: scale(1);    filter: brightness(1) invert(0) drop-shadow(0 14px 22px rgba(0,0,0,.7)) drop-shadow(0 0 26px color-mix(in srgb, var(--c) 60%, transparent)); }
+  12%  { transform: scale(1.04); filter: brightness(1.8) invert(0) drop-shadow(0 0 18px rgba(255,255,255,.8)) drop-shadow(0 0 40px rgba(255,255,255,.6)); }
+  30%  { transform: scale(1.09); filter: brightness(0) invert(1) drop-shadow(0 0 22px #fff) drop-shadow(0 0 60px #fff); }
+  100% { transform: scale(1.03); filter: brightness(1) invert(0) drop-shadow(0 14px 22px rgba(0,0,0,.7)) drop-shadow(0 0 26px color-mix(in srgb, var(--c) 60%, transparent)); }
+}
 
 /* The name label that gets slammed onto the hero */
 .stamp {
@@ -213,8 +229,6 @@ button.hero:hover .hero-name { color: var(--gold); }
   100% { opacity: 1; transform: translate(-50%, -50%) rotate(-5deg) scale(1); }
 }
 .stage::before { content: ""; position: absolute; inset: auto 0 0; height: 34%; z-index: 2; pointer-events: none; background: linear-gradient(transparent, rgba(18, 6, 0, .78)); }
-.stage.locked::after { content: ""; position: absolute; inset: -40% -20% 0; background: #fff; opacity: 0; animation: flash .5s .28s ease-out; pointer-events: none; z-index: 2; }
-@keyframes flash { 0% { opacity: .75; } 100% { opacity: 0; } }
 .sparkles { position: absolute; left: 50%; top: 58%; z-index: 4; pointer-events: none; }
 .sparkles i {
   position: absolute; left: 0; top: 0; width: var(--s); height: var(--s); margin: calc(var(--s) / -2);
@@ -227,6 +241,52 @@ button.hero:hover .hero-name { color: var(--gold); }
   100% { opacity: 0; transform: translate(var(--x), var(--y)) scale(1.2) rotate(200deg); }
 }
 .locked-msg { font: 900 1.25rem var(--display); color: var(--gold); text-transform: uppercase; letter-spacing: .08em; text-align: center; margin: .5rem 0 0; animation: pop .4s .5s both; }
+
+/* Random pick: a slot machine in the stage before the hero is revealed */
+.reel { --item: 120px; position: absolute; inset: 0; z-index: 1; overflow: hidden; display: grid; place-items: center;
+  background: repeating-conic-gradient(from 0deg at 50% 50%, rgba(218,180,95,.07) 0 10deg, transparent 10deg 20deg); }
+.slot-window {
+  position: relative; width: 170px; height: 100%; overflow: hidden;
+  background: linear-gradient(90deg, #0b0400, #2b1607 30%, #3a1e09 50%, #2b1607 70%, #0b0400);
+  border-left: 4px double var(--gold); border-right: 4px double var(--gold);
+  box-shadow: inset 0 0 30px #000, 0 0 30px rgba(0,0,0,.8);
+  -webkit-mask-image: linear-gradient(transparent, #000 22%, #000 78%, transparent);
+          mask-image: linear-gradient(transparent, #000 22%, #000 78%, transparent);
+}
+.slot-strip { position: absolute; left: 0; right: 0; top: calc(50% - var(--item) / 2); will-change: transform; }
+.slot-item { height: var(--item); display: grid; place-items: center; }
+.slot-item .avatar { width: calc(var(--item) - 16px); height: calc(var(--item) - 16px); margin: 0; }
+.slot-item .avatar .initials { font-size: 2rem; }
+/* The payline: gold arrows pointing at the middle slot */
+.payline { position: absolute; left: 50%; top: 50%; width: 240px; height: 0; translate: -50% 0; z-index: 2; pointer-events: none; }
+.payline::before, .payline::after { content: ""; position: absolute; top: -12px; border: 12px solid transparent; filter: drop-shadow(0 0 6px #ffb300); }
+.payline::before { left: 0; border-left: 20px solid var(--gold); }
+.payline::after { right: 0; border-right: 20px solid var(--gold); }
+/* Marquee bulbs around the stage */
+.bulbs { position: absolute; display: flex; justify-content: space-between; z-index: 3; pointer-events: none; }
+.bulbs.top, .bulbs.bottom { left: 10px; right: 10px; }
+.bulbs.top { top: 8px; } .bulbs.bottom { bottom: 8px; }
+.bulbs.left, .bulbs.right { top: 34px; bottom: 34px; flex-direction: column; }
+.bulbs.left { left: 8px; } .bulbs.right { right: 8px; }
+.bulbs i { --speed: .9s; width: 9px; height: 9px; border-radius: 50%; background: #ffe9a8; box-shadow: 0 0 6px #ffcf5a, 0 0 12px #ffb300;
+  animation: bulb var(--speed) steps(1) infinite; }
+.bulbs i:nth-child(even) { animation-delay: calc(var(--speed) / -2); }
+.reel.spinning .bulbs i { --speed: .3s; }
+.reel.won .bulbs i { --speed: .4s; animation-delay: 0s; }
+@keyframes bulb { 50% { background: #5a3a10; box-shadow: none; } }
+/* The win */
+.reel.won .slot-window { border-color: #fff; box-shadow: inset 0 0 30px #000, 0 0 40px rgba(255, 207, 90, .7); }
+.reel.won .slot-item.final .avatar { animation: reelland .5s cubic-bezier(.2, 1.6, .4, 1); box-shadow: 0 0 0 3px var(--bg), 0 0 0 5px #fff, 0 0 50px #fff; }
+@keyframes reelland { 0% { transform: scale(.85); } 60% { transform: scale(1.2); } 100% { transform: scale(1); } }
+.jackpot {
+  position: absolute; left: 50%; top: 80%; z-index: 4; padding: .3rem 1.2rem .35rem; text-align: center;
+  background: linear-gradient(#ffe9a8, var(--gold) 55%, #a5791f); color: var(--xmas); border: 2px solid #fff;
+  font: 900 clamp(1.3rem, 5vw, 1.9rem)/1.05 var(--display); text-transform: uppercase; letter-spacing: .06em;
+  box-shadow: 0 8px 30px rgba(0,0,0,.7), 0 0 30px rgba(255, 207, 90, .8);
+  transform: translate(-50%, -50%) rotate(-5deg);
+  animation: slam .6s cubic-bezier(.2, 1.5, .4, 1) both;
+}
+.jackpot small { display: block; white-space: nowrap; font: 700 .65rem var(--body); letter-spacing: .25em; color: var(--bg); }
 
 .dialog-main { padding: 1.25rem 1.5rem 1.5rem; }
 .dialog h3 { font-size: 1.6rem; line-height: 1.15; }
@@ -243,6 +303,9 @@ button.hero:hover .hero-name { color: var(--gold); }
   .stage { height: 190px; }
   .cutout { height: 180%; }
   .avatar { width: 84px; height: 84px; }
+  .reel { --item: 96px; }
+  .slot-window { width: 140px; }
+  .payline { width: 200px; }
   .grid { grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); }
 }
 
